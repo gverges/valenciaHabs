@@ -13,20 +13,7 @@ const CITY_CENTER = [39.4699, -0.3763]; // Valencia
 const CITY_GEOCODE_SUFFIX = ", Valencia, España";
 
 const PALETTE = ["#1B3A6B", "#C1502E", "#E3A335", "#4C6B4F", "#8B5FBF", "#2C7DA0"];
-const GEOCODE_CACHE_KEY = "flatfinder_geocode_cache_v3"; // bumped: key format changed (address-first)
-
-// Roughly greater Valencia (city + huerta). Any coordinate outside this box —
-// whether pulled from a Google Maps link or from geocoding — is treated as
-// unresolved rather than plotted, so a bad match never lands in the ocean.
-const CITY_BBOX = { south: 39.25, north: 39.62, west: -0.48, east: -0.18 };
-function withinCityBbox(lat, lng) {
-  return (
-    lat >= CITY_BBOX.south &&
-    lat <= CITY_BBOX.north &&
-    lng >= CITY_BBOX.west &&
-    lng <= CITY_BBOX.east
-  );
-}
+const GEOCODE_CACHE_KEY = "flatfinder_geocode_cache_v1";
 
 // -----------------------------------------------------------------
 // 2) State
@@ -117,18 +104,12 @@ function saveGeocodeCache(cache) {
   }
 }
 async function geocode(query) {
-  const viewbox = `${CITY_BBOX.west},${CITY_BBOX.north},${CITY_BBOX.east},${CITY_BBOX.south}`;
-  const url =
-    `https://nominatim.openstreetmap.org/search?format=json&limit=1` +
-    `&q=${encodeURIComponent(query)}&viewbox=${viewbox}&bounded=1`;
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error("geocode failed");
   const data = await res.json();
   if (!data.length) return null;
-  const lat = parseFloat(data[0].lat);
-  const lng = parseFloat(data[0].lon);
-  if (!withinCityBbox(lat, lng)) return null; // extra safety net
-  return [lat, lng];
+  return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
 }
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -176,83 +157,47 @@ function normalizeRow(r, idx) {
 
 async function resolveCoordinates(flats, onProgress) {
   const cache = loadGeocodeCache();
-  const needsFallback = [];
+  const barrioQueue = [];
 
-  // Pass 1: coordinates already embedded in the Google Maps link.
   for (const f of flats) {
     const direct = extractCoords(f.gmaps);
-    if (direct && withinCityBbox(direct[0], direct[1])) {
+    if (direct) {
       f.lat = direct[0];
       f.lng = direct[1];
       f.coordSource = "link";
-    } else {
-      needsFallback.push(f);
-    }
-  }
-
-  // Pass 2: geocode the actual street address — far more reliable than a
-  // neighborhood name, and precise enough that no jitter is needed.
-  const stillNeeded = [];
-  for (let i = 0; i < needsFallback.length; i++) {
-    const f = needsFallback[i];
-    if (!f.addresse) {
-      stillNeeded.push(f);
       continue;
     }
-    const key = ("addr:" + f.addresse + CITY_GEOCODE_SUFFIX).toLowerCase();
+    const key = (f.barrio + CITY_GEOCODE_SUFFIX).toLowerCase();
     if (cache[key]) {
-      if (cache[key] === "MISS") {
-        stillNeeded.push(f);
-        continue;
-      }
-      f.lat = cache[key][0];
-      f.lng = cache[key][1];
-      f.coordSource = "address-cached";
-      continue;
+      const [lat, lng] = jitter(f.id, cache[key][0], cache[key][1]);
+      f.lat = lat;
+      f.lng = lng;
+      f.coordSource = "barrio-cached";
+    } else {
+      barrioQueue.push(f);
     }
-    if (onProgress) onProgress(i + 1, needsFallback.length, f.addresse);
-    try {
-      const coords = await geocode(f.addresse + CITY_GEOCODE_SUFFIX);
-      if (coords) {
-        cache[key] = coords;
-        f.lat = coords[0];
-        f.lng = coords[1];
-        f.coordSource = "address-geocoded";
-      } else {
-        cache[key] = "MISS";
-        stillNeeded.push(f);
-      }
-    } catch {
-      stillNeeded.push(f);
-    }
-    if (i < needsFallback.length - 1) await sleep(1100); // respect Nominatim rate limit
   }
 
-  // Pass 3: last resort — barrio-level geocode, jittered so flats sharing a
-  // barrio don't all stack on the exact same point.
-  const uniqueBarrios = [...new Set(stillNeeded.map((f) => f.barrio))];
+  const uniqueBarrios = [...new Set(barrioQueue.map((f) => f.barrio))];
   for (let i = 0; i < uniqueBarrios.length; i++) {
     const barrio = uniqueBarrios[i];
-    const key = ("barrio:" + barrio + CITY_GEOCODE_SUFFIX).toLowerCase();
+    const key = (barrio + CITY_GEOCODE_SUFFIX).toLowerCase();
     if (onProgress) onProgress(i + 1, uniqueBarrios.length, barrio);
-    let coords = cache[key] && cache[key] !== "MISS" ? cache[key] : null;
-    if (!coords && cache[key] !== "MISS") {
-      try {
-        coords = await geocode(barrio + CITY_GEOCODE_SUFFIX);
-        cache[key] = coords || "MISS";
-      } catch {
-        cache[key] = "MISS";
+    try {
+      const coords = await geocode(barrio + CITY_GEOCODE_SUFFIX);
+      if (coords) {
+        cache[key] = coords;
+        for (const f of barrioQueue.filter((f) => f.barrio === barrio)) {
+          const [lat, lng] = jitter(f.id, coords[0], coords[1]);
+          f.lat = lat;
+          f.lng = lng;
+          f.coordSource = "barrio-geocoded";
+        }
       }
-      if (i < uniqueBarrios.length - 1) await sleep(1100); // respect Nominatim rate limit
+    } catch {
+      /* leave uncoordinated, still shown in list */
     }
-    if (coords) {
-      for (const f of stillNeeded.filter((f) => f.barrio === barrio)) {
-        const [lat, lng] = jitter(f.id, coords[0], coords[1]);
-        f.lat = lat;
-        f.lng = lng;
-        f.coordSource = "barrio-geocoded";
-      }
-    }
+    if (i < uniqueBarrios.length - 1) await sleep(1100); // respect Nominatim rate limit
   }
   saveGeocodeCache(cache);
 }
