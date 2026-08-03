@@ -8,7 +8,7 @@
 // -----------------------------------------------------------------
 // 1) CONFIG — edit these two lines for your own sheet / city
 // -----------------------------------------------------------------
-const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSz5c7H8MAa3sfsuJAzFOMsKLJLqcHr9g4FmjfWT5URAe7FXTQmDay7n1TRxVwrNnJWi_IA4OrZivxf/pub?gid=0&single=true&output=csv";
+const CSV_URL = "https://docs.google.com/spreadsheets/u/1/d/e/2PACX-1vSz5c7H8MAa3sfsuJAzFOMsKLJLqcHr9g4FmjfWT5URAe7FXTQmDay7n1TRxVwrNnJWi_IA4OrZivxf/pubhtml?gid=0&single=true";
 const CITY_CENTER = [39.4699, -0.3763]; // Valencia
 const CITY_GEOCODE_SUFFIX = ", Valencia, España";
 
