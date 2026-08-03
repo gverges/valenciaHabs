@@ -13,7 +13,20 @@ const CITY_CENTER = [39.4699, -0.3763]; // Valencia
 const CITY_GEOCODE_SUFFIX = ", Valencia, España";
 
 const PALETTE = ["#1B3A6B", "#C1502E", "#E3A335", "#4C6B4F", "#8B5FBF", "#2C7DA0"];
-const GEOCODE_CACHE_KEY = "flatfinder_geocode_cache_v1";
+const GEOCODE_CACHE_KEY = "flatfinder_geocode_cache_v2"; // bumped: old cache may hold bad matches
+
+// Roughly greater Valencia (city + huerta). Any coordinate outside this box —
+// whether pulled from a Google Maps link or from geocoding — is treated as
+// unresolved rather than plotted, so a bad match never lands in the ocean.
+const CITY_BBOX = { south: 39.25, north: 39.62, west: -0.48, east: -0.18 };
+function withinCityBbox(lat, lng) {
+  return (
+    lat >= CITY_BBOX.south &&
+    lat <= CITY_BBOX.north &&
+    lng >= CITY_BBOX.west &&
+    lng <= CITY_BBOX.east
+  );
+}
 
 // -----------------------------------------------------------------
 // 2) State
@@ -104,12 +117,18 @@ function saveGeocodeCache(cache) {
   }
 }
 async function geocode(query) {
-  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
+  const viewbox = `${CITY_BBOX.west},${CITY_BBOX.north},${CITY_BBOX.east},${CITY_BBOX.south}`;
+  const url =
+    `https://nominatim.openstreetmap.org/search?format=json&limit=1` +
+    `&q=${encodeURIComponent(query)}&viewbox=${viewbox}&bounded=1`;
   const res = await fetch(url);
   if (!res.ok) throw new Error("geocode failed");
   const data = await res.json();
   if (!data.length) return null;
-  return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+  const lat = parseFloat(data[0].lat);
+  const lng = parseFloat(data[0].lon);
+  if (!withinCityBbox(lat, lng)) return null; // extra safety net
+  return [lat, lng];
 }
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -161,7 +180,7 @@ async function resolveCoordinates(flats, onProgress) {
 
   for (const f of flats) {
     const direct = extractCoords(f.gmaps);
-    if (direct) {
+    if (direct && withinCityBbox(direct[0], direct[1])) {
       f.lat = direct[0];
       f.lng = direct[1];
       f.coordSource = "link";
