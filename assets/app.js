@@ -13,7 +13,7 @@ const CITY_CENTER = [39.4699, -0.3763]; // Valencia
 const CITY_GEOCODE_SUFFIX = ", Valencia, España";
 
 const PALETTE = ["#1B3A6B", "#C1502E", "#E3A335", "#4C6B4F", "#8B5FBF", "#2C7DA0"];
-const GEOCODE_CACHE_KEY = "flatfinder_geocode_cache_v3"; // bumped: key format changed (address-first)
+const GEOCODE_CACHE_KEY = "flatfinder_geocode_cache_v4"; // bumped: key format changed (address-first)
 
 // Roughly greater Valencia (city + huerta). Any coordinate outside this box —
 // whether pulled from a Google Maps link or from geocoding — is treated as
